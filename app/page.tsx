@@ -188,7 +188,7 @@ export default function GrokCompactSplit() {
         <div className="p-5 border-t border-zinc-900 bg-zinc-950 sticky bottom-0">
           <button
             onClick={status === "Disconnected" ? startSession : stopAudio}
-            className={`w-full py-3 rounded-xl font-black text-xs transition-all active:scale-95 ${
+            className={`w-full py-3 rounded-xl font-black text-base transition-all active:scale-95 ${
               status === "Disconnected" ? "bg-white text-black hover:bg-zinc-200" : "bg-red-600 text-white"
             }`}
           >
@@ -206,13 +206,13 @@ export default function GrokCompactSplit() {
         
         <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
           {messages.length === 0 && (
-            <div className="h-full flex items-center justify-center text-zinc-800 italic text-xs">
+            <div className="h-full flex items-center justify-center text-zinc-800 italic text-base">
               No messages yet...
             </div>
           )}
           {messages.map((msg) => (
             <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-              <div className={`max-w-[75%] p-4 rounded-2xl text-xs leading-relaxed ${
+              <div className={`max-w-[75%] p-4 rounded-2xl text-base leading-relaxed ${
                 msg.role === 'user' 
                   ? 'bg-zinc-800 text-zinc-200 rounded-tr-none' 
                   : 'bg-blue-600/10 text-blue-100 border border-blue-900/20 rounded-tl-none'
