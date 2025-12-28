@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 const VOICES = [
   { id: "Ara", label: "Ara", desc: "Friendly (F)" },
@@ -19,11 +19,22 @@ export default function GrokSplitScreen() {
   const [volume, setVolume] = useState(0);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  
+  // --- Timer State ---
+  const [secondsElapsed, setSecondsElapsed] = useState(0);
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const nextStartTimeRef = useRef<number>(0);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
+
+  // Helper to format seconds into MM:SS
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   const updateTranscript = (role: "user" | "assistant", textDelta: string, isNew: boolean = false) => {
     setMessages((prev) => {
@@ -68,6 +79,12 @@ export default function GrokSplitScreen() {
       socketRef.current = ws;
 
       ws.onopen = () => {
+        // --- Start the Timer ---
+        setSecondsElapsed(0);
+        timerIntervalRef.current = setInterval(() => {
+          setSecondsElapsed((prev) => prev + 1);
+        }, 1000);
+
         ws.send(JSON.stringify({
           type: "session.update",
           session: {
@@ -126,19 +143,43 @@ export default function GrokSplitScreen() {
   };
 
   const stopAudio = () => {
+    // --- Stop the Timer ---
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+    
     processorRef.current?.disconnect();
     socketRef.current?.close();
-    setVolume(0); setIsSpeaking(false); setStatus("Disconnected");
+    setVolume(0); 
+    setIsSpeaking(false); 
+    setStatus("Disconnected");
   };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, []);
 
   return (
     <div className="flex h-screen w-screen bg-black text-white overflow-hidden font-sans">
       
       {/* LEFT PANEL: CONTROLS */}
       <div className="w-[320px] flex-shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-950 overflow-y-auto scrollbar-hide">
-        <div className="p-5 border-b border-zinc-900 bg-zinc-950 sticky top-0 z-10">
-          <h1 className="text-lg font-black tracking-tight uppercase">Grok Voice</h1>
-          <p className={`text-[9px] uppercase tracking-[0.2em] font-bold ${status.includes("Ready") ? "text-green-500" : "text-zinc-500"}`}>{status}</p>
+        <div className="p-5 border-b border-zinc-900 bg-zinc-950 sticky top-0 z-10 flex justify-between items-center">
+          <div>
+            <h1 className="text-lg font-black tracking-tight uppercase">Grok Voice</h1>
+            <p className={`text-[9px] uppercase tracking-[0.2em] font-bold ${status.includes("Ready") ? "text-green-500" : "text-zinc-500"}`}>{status}</p>
+          </div>
+          {/* TIMER DISPLAY */}
+          {status !== "Disconnected" && (
+            <div className="text-right">
+              <p className="text-[9px] uppercase tracking-widest text-zinc-500 font-bold">Session Time</p>
+              <p className="text-sm font-mono font-bold text-white">{formatTime(secondsElapsed)}</p>
+            </div>
+          )}
         </div>
 
         <div className="p-5 flex-1 space-y-6">
@@ -176,6 +217,11 @@ export default function GrokSplitScreen() {
             className={`w-full py-3 rounded-xl font-black text-base transition-all active:scale-95 ${status === "Disconnected" ? "bg-white text-black hover:bg-zinc-200" : "bg-red-600 text-white"}`}>
             {status === "Disconnected" ? "START SESSION" : "END SESSION"}
           </button>
+          {status !== "Disconnected" && (
+            <p className="text-center text-[8px] text-zinc-500 mt-2 uppercase tracking-tighter">
+              Billed for {formatTime(secondsElapsed)} so far
+            </p>
+          )}
         </div>
       </div>
 
@@ -187,8 +233,7 @@ export default function GrokSplitScreen() {
         </div>
         
         <div className="flex-1 overflow-y-auto p-6 space-y-6 flex flex-col-reverse">
-          {/* New messages appear at top because of flex-col-reverse */}
-          <div className="h-4 w-full" /> {/* Spacer */}
+          <div className="h-4 w-full" />
           {messages.map((msg) => (
             <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
               <div className={`max-w-[75%] p-4 rounded-2xl text-base leading-relaxed ${
