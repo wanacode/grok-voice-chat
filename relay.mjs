@@ -1,4 +1,4 @@
-// relay.mjs
+// relay.mjs (Ensure it matches the queuing logic)
 import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import dotenv from 'dotenv';
@@ -10,17 +10,13 @@ const server = app.listen(8080, () => console.log(`🚀 Relay: ws://localhost:80
 const wss = new WebSocketServer({ server });
 
 wss.on('connection', (clientSocket) => {
-  console.log('🔗 Browser connected');
-  
   const xaiSocket = new WebSocket('wss://api.x.ai/v1/realtime', {
     headers: { 'Authorization': `Bearer ${process.env.XAI_API_KEY}` }
   });
 
-  let messageQueue = []; // Queue to hold messages until xAI is ready
+  let messageQueue = [];
 
   xaiSocket.on('open', () => {
-    console.log('🚀 Connected to xAI');
-    // Flush the queue!
     while (messageQueue.length > 0) {
       xaiSocket.send(messageQueue.shift());
     }
@@ -31,19 +27,15 @@ wss.on('connection', (clientSocket) => {
     if (xaiSocket.readyState === WebSocket.OPEN) {
       xaiSocket.send(msg);
     } else {
-      console.log('⏳ xAI not ready, queuing message...');
       messageQueue.push(msg);
     }
   });
 
   xaiSocket.on('message', (data) => {
-    const msg = JSON.parse(data.toString());
-    // Only log important events to keep the terminal clean
-    if (msg.type !== 'ping') console.log(`xAI -> Browser: ${msg.type}`);
     clientSocket.send(data.toString());
   });
 
-  xaiSocket.on('error', (e) => console.error('❌ xAI Error:', e));
-  clientSocket.on('close', () => clientSocket.close());
+  xaiSocket.on('error', (e) => console.error('xAI Error:', e));
   clientSocket.on('close', () => xaiSocket.close());
+  xaiSocket.on('close', () => clientSocket.close());
 });
