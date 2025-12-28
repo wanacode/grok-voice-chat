@@ -12,7 +12,7 @@ const VOICES = [
 
 type Message = { id: string; role: "user" | "assistant"; text: string; timestamp: Date; };
 
-export default function GrokCompactSplit() {
+export default function GrokSplitScreen() {
   const [status, setStatus] = useState("Disconnected");
   const [language, setLanguage] = useState("English");
   const [voice, setVoice] = useState("Ara");
@@ -58,21 +58,21 @@ export default function GrokCompactSplit() {
 
   const startSession = async () => {
     try {
-      setStatus("Init...");
+      setStatus("Initializing...");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (!audioContextRef.current) audioContextRef.current = new AudioContext({ sampleRate: 24000 });
       await audioContextRef.current.resume();
 
-      const ws = new WebSocket(`ws://localhost:8080`);
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${window.location.host}/realtime`);
       socketRef.current = ws;
 
       ws.onopen = () => {
-        setStatus("Config...");
         ws.send(JSON.stringify({
           type: "session.update",
           session: {
             voice,
-            instructions: `You are Grok. Voice mode. Language: ${language}. Concise.`,
+            instructions: `You are Grok. Real-time voice mode. Language: ${language}. Concise.`,
             turn_detection: { type: "server_vad" },
             audio: {
               input: { format: { type: "audio/pcm", rate: 24000 } },
@@ -85,6 +85,7 @@ export default function GrokCompactSplit() {
         processorRef.current = audioContextRef.current!.createScriptProcessor(4096, 1, 1);
         source.connect(processorRef.current);
         processorRef.current.connect(audioContextRef.current!.destination);
+        
         processorRef.current.onaudioprocess = (e) => {
           const inputData = e.inputBuffer.getChannelData(0);
           let sum = 0;
@@ -102,7 +103,7 @@ export default function GrokCompactSplit() {
         };
       };
 
-      ws.onmessage = async (event) => {
+      ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         switch (data.type) {
           case "session.updated": setStatus("Ready"); break;
@@ -119,7 +120,9 @@ export default function GrokCompactSplit() {
           case "response.done": setIsSpeaking(false); setStatus("Ready"); break;
         }
       };
-    } catch (err) { setStatus("Error"); }
+
+      ws.onclose = () => { setStatus("Disconnected"); stopAudio(); };
+    } catch (err) { setStatus("Error: Mic Denied"); }
   };
 
   const stopAudio = () => {
@@ -131,37 +134,25 @@ export default function GrokCompactSplit() {
   return (
     <div className="flex h-screen w-screen bg-black text-white overflow-hidden font-sans">
       
-      {/* LEFT PANEL: CONTROLS (Scrollable if height is small) */}
+      {/* LEFT PANEL: CONTROLS */}
       <div className="w-[320px] flex-shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-950 overflow-y-auto scrollbar-hide">
         <div className="p-5 border-b border-zinc-900 bg-zinc-950 sticky top-0 z-10">
-          <h1 className="text-lg font-black tracking-tight">GROK VOICE</h1>
-          <p className={`text-[9px] uppercase tracking-[0.2em] font-bold ${status.includes("Ready") ? "text-green-500" : "text-zinc-500"}`}>
-            {status}
-          </p>
+          <h1 className="text-lg font-black tracking-tight uppercase">Grok Voice</h1>
+          <p className={`text-[9px] uppercase tracking-[0.2em] font-bold ${status.includes("Ready") ? "text-green-500" : "text-zinc-500"}`}>{status}</p>
         </div>
 
         <div className="p-5 flex-1 space-y-6">
-          {/* Compact Visualizer */}
           <div className="flex items-center justify-center h-24 bg-zinc-900/40 rounded-2xl border border-zinc-800/50">
-            <div 
-              className={`rounded-full transition-all duration-200 ${isSpeaking ? 'bg-blue-600' : 'bg-zinc-800'}`}
-              style={{ width: `${Math.max(40, 40 + volume)}px`, height: `${Math.max(40, 40 + volume)}px` }}
-            />
+            <div className={`rounded-full transition-all duration-200 ${isSpeaking ? 'bg-blue-600' : 'bg-zinc-800'}`}
+              style={{ width: `${Math.max(40, 40 + volume)}px`, height: `${Math.max(40, 40 + volume)}px` }} />
           </div>
 
-          {/* Voice Selection (2-Column Grid to save space) */}
           <div>
-            <label className="text-[9px] uppercase tracking-widest text-zinc-500 font-bold mb-2 block">Voice</label>
+            <label className="text-[9px] uppercase tracking-widest text-zinc-500 font-bold mb-2 block">Voice Selection</label>
             <div className="grid grid-cols-2 gap-2">
               {VOICES.map((v) => (
-                <button
-                  key={v.id}
-                  onClick={() => setVoice(v.id)}
-                  disabled={status !== "Disconnected"}
-                  className={`text-left px-3 py-2 rounded-xl border text-[10px] transition-all ${
-                    voice === v.id ? "bg-white text-black border-white" : "bg-transparent border-zinc-800 text-zinc-400"
-                  } disabled:opacity-50`}
-                >
+                <button key={v.id} onClick={() => setVoice(v.id)} disabled={status !== "Disconnected"}
+                  className={`text-left px-3 py-2 rounded-xl border text-[10px] transition-all ${voice === v.id ? "bg-white text-black border-white" : "bg-transparent border-zinc-800 text-zinc-400"} disabled:opacity-50`}>
                   <div className="font-bold">{v.label}</div>
                   <div className="opacity-60 leading-tight">{v.desc}</div>
                 </button>
@@ -169,61 +160,50 @@ export default function GrokCompactSplit() {
             </div>
           </div>
 
-          {/* Language Selection */}
           <div>
             <label className="text-[9px] uppercase tracking-widest text-zinc-500 font-bold mb-2 block">Language</label>
             <div className="flex gap-2 p-1 bg-black rounded-xl border border-zinc-800">
               {["English", "Spanish"].map(l => (
                 <button key={l} onClick={() => setLanguage(l)} disabled={status !== "Disconnected"}
-                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold transition ${language === l ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}
-                >
-                  {l}
-                </button>
+                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold transition ${language === l ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}>{l}</button>
               ))}
             </div>
           </div>
         </div>
 
-        {/* Action Button (Fixed at bottom of panel) */}
         <div className="p-5 border-t border-zinc-900 bg-zinc-950 sticky bottom-0">
-          <button
-            onClick={status === "Disconnected" ? startSession : stopAudio}
-            className={`w-full py-3 rounded-xl font-black text-base transition-all active:scale-95 ${
-              status === "Disconnected" ? "bg-white text-black hover:bg-zinc-200" : "bg-red-600 text-white"
-            }`}
-          >
+          <button onClick={status === "Disconnected" ? startSession : stopAudio}
+            className={`w-full py-3 rounded-xl font-black text-base transition-all active:scale-95 ${status === "Disconnected" ? "bg-white text-black hover:bg-zinc-200" : "bg-red-600 text-white"}`}>
             {status === "Disconnected" ? "START SESSION" : "END SESSION"}
           </button>
         </div>
       </div>
 
-      {/* RIGHT PANEL: TRANSCRIPT (Newest at top) */}
+      {/* RIGHT PANEL: PERMANENT TRANSCRIPT */}
       <div className="flex-1 flex flex-col bg-black">
         <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-950/50 backdrop-blur">
           <h2 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Conversation Log</h2>
           <button onClick={() => setMessages([])} className="text-[9px] text-zinc-600 hover:text-red-400 font-bold uppercase">Clear</button>
         </div>
         
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
-          {messages.length === 0 && (
-            <div className="h-full flex items-center justify-center text-zinc-800 italic text-base">
-              No messages yet...
-            </div>
-          )}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 flex flex-col-reverse">
+          {/* New messages appear at top because of flex-col-reverse */}
+          <div className="h-4 w-full" /> {/* Spacer */}
           {messages.map((msg) => (
             <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
               <div className={`max-w-[75%] p-4 rounded-2xl text-base leading-relaxed ${
-                msg.role === 'user' 
-                  ? 'bg-zinc-800 text-zinc-200 rounded-tr-none' 
-                  : 'bg-blue-600/10 text-blue-100 border border-blue-900/20 rounded-tl-none'
+                msg.role === 'user' ? 'bg-zinc-800 text-zinc-200 rounded-tr-none' : 'bg-blue-600/10 text-blue-100 border border-blue-900/20 rounded-tl-none'
               }`}>
-                {msg.text || <span className="animate-pulse">...</span>}
+                {msg.text || <span className="animate-pulse italic opacity-50">Speaking...</span>}
               </div>
               <span className="text-[8px] text-zinc-600 mt-1.5 font-mono uppercase">
-                {msg.role} • {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                {msg.role} • {msg.timestamp.toLocaleTimeString()}
               </span>
             </div>
           ))}
+          {messages.length === 0 && (
+            <div className="h-full flex items-center justify-center text-zinc-800 italic text-base">Waiting for conversation...</div>
+          )}
         </div>
       </div>
     </div>
