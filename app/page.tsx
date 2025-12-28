@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { Sun, Moon, Trash2, Mic, MicOff } from "lucide-react";
 
 const VOICES = [
   { id: "Ara", label: "Ara", desc: "Friendly (F)" },
@@ -13,23 +14,44 @@ const VOICES = [
 type Message = { id: string; role: "user" | "assistant"; text: string; timestamp: Date; };
 
 export default function GrokSplitScreen() {
+  // --- UI & Theme State ---
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    // Only run on client
+    if (typeof window !== "undefined") {
+      return (localStorage.getItem("theme") as "light" | "dark") || "dark";
+    }
+    return "dark";
+  });
+
   const [status, setStatus] = useState("Disconnected");
   const [language, setLanguage] = useState("English");
   const [voice, setVoice] = useState("Ara");
   const [volume, setVolume] = useState(0);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
-  
+
   // --- Timer State ---
   const [secondsElapsed, setSecondsElapsed] = useState(0);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // --- Refs ---
   const socketRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const nextStartTimeRef = useRef<number>(0);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
 
-  // Helper to format seconds into MM:SS
+  // --- Tailwind v4 Theme Toggle Logic ---
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (theme === "dark") {
+      root.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      root.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  }, [theme]);
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -79,11 +101,9 @@ export default function GrokSplitScreen() {
       socketRef.current = ws;
 
       ws.onopen = () => {
-        // --- Start the Timer ---
+        // Start Billing Timer
         setSecondsElapsed(0);
-        timerIntervalRef.current = setInterval(() => {
-          setSecondsElapsed((prev) => prev + 1);
-        }, 1000);
+        timerIntervalRef.current = setInterval(() => setSecondsElapsed(s => s + 1), 1000);
 
         ws.send(JSON.stringify({
           type: "session.update",
@@ -143,111 +163,126 @@ export default function GrokSplitScreen() {
   };
 
   const stopAudio = () => {
-    // --- Stop the Timer ---
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
     }
-    
     processorRef.current?.disconnect();
     socketRef.current?.close();
-    setVolume(0); 
-    setIsSpeaking(false); 
-    setStatus("Disconnected");
+    setVolume(0); setIsSpeaking(false); setStatus("Disconnected");
   };
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    };
-  }, []);
-
   return (
-    <div className="flex h-screen w-screen bg-black text-white overflow-hidden font-sans">
+    <div className="flex h-screen w-screen bg-white dark:bg-black text-zinc-900 dark:text-zinc-100 transition-colors duration-300 font-sans overflow-hidden">
       
-      {/* LEFT PANEL: CONTROLS */}
-      <div className="w-[320px] flex-shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-950 overflow-y-auto scrollbar-hide">
-        <div className="p-5 border-b border-zinc-900 bg-zinc-950 sticky top-0 z-10 flex justify-between items-center">
+      {/* LEFT PANEL */}
+      <div className="w-[320px] flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 flex flex-col bg-zinc-50 dark:bg-zinc-950">
+        
+        {/* Header */}
+        <div className="p-5 border-b border-zinc-200 dark:border-zinc-900 flex justify-between items-center">
           <div>
             <h1 className="text-lg font-black tracking-tight uppercase">Grok Voice</h1>
-            <p className={`text-[9px] uppercase tracking-[0.2em] font-bold ${status.includes("Ready") ? "text-green-500" : "text-zinc-500"}`}>{status}</p>
+            <p className={`text-[9px] font-bold uppercase tracking-widest ${status.includes("Ready") ? "text-green-600 dark:text-green-400" : "text-zinc-500"}`}>
+              {status}
+            </p>
           </div>
-          {/* TIMER DISPLAY */}
-          {status !== "Disconnected" && (
-            <div className="text-right">
-              <p className="text-[9px] uppercase tracking-widest text-zinc-500 font-bold">Session Time</p>
-              <p className="text-sm font-mono font-bold text-white">{formatTime(secondsElapsed)}</p>
-            </div>
-          )}
+          <button 
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className="p-2 rounded-lg bg-zinc-200 dark:bg-zinc-800 hover:opacity-80 transition-all"
+          >
+            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
         </div>
 
-        <div className="p-5 flex-1 space-y-6">
-          <div className="flex items-center justify-center h-24 bg-zinc-900/40 rounded-2xl border border-zinc-800/50">
-            <div className={`rounded-full transition-all duration-200 ${isSpeaking ? 'bg-blue-600' : 'bg-zinc-800'}`}
-              style={{ width: `${Math.max(40, 40 + volume)}px`, height: `${Math.max(40, 40 + volume)}px` }} />
+        {/* Status & Visualizer */}
+        <div className="p-6 flex-1 space-y-8 overflow-y-auto">
+          <div className="relative flex flex-col items-center justify-center p-8 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+            {status !== "Disconnected" && (
+              <div className="absolute top-4 text-base font-mono font-bold tracking-tighter text-zinc-400">
+                ELAPSED: {formatTime(secondsElapsed)}
+              </div>
+            )}
+            <div 
+              className={`rounded-full transition-all duration-150 ${isSpeaking ? 'bg-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.5)]' : 'bg-zinc-200 dark:bg-zinc-800'}`}
+              style={{ width: `${Math.max(50, 50 + volume)}px`, height: `${Math.max(50, 50 + volume)}px` }}
+            />
           </div>
 
-          <div>
-            <label className="text-[9px] uppercase tracking-widest text-zinc-500 font-bold mb-2 block">Voice Selection</label>
-            <div className="grid grid-cols-2 gap-2">
-              {VOICES.map((v) => (
-                <button key={v.id} onClick={() => setVoice(v.id)} disabled={status !== "Disconnected"}
-                  className={`text-left px-3 py-2 rounded-xl border text-[10px] transition-all ${voice === v.id ? "bg-white text-black border-white" : "bg-transparent border-zinc-800 text-zinc-400"} disabled:opacity-50`}>
-                  <div className="font-bold">{v.label}</div>
-                  <div className="opacity-60 leading-tight">{v.desc}</div>
-                </button>
-              ))}
+          {/* Settings */}
+          <div className="space-y-6">
+            <div>
+              <label className="text-base font-bold uppercase text-zinc-500 mb-3 block tracking-widest">Voice</label>
+              <div className="grid grid-cols-2 gap-2">
+                {VOICES.map((v) => (
+                  <button key={v.id} onClick={() => setVoice(v.id)} disabled={status !== "Disconnected"}
+                    className={`text-left px-3 py-2 rounded-xl border text-base transition-all ${voice === v.id ? "bg-zinc-900 text-white dark:bg-white dark:text-black border-transparent shadow-lg" : "bg-transparent border-zinc-200 dark:border-zinc-800 text-zinc-500"} disabled:opacity-50`}>
+                    <div className="font-bold">{v.label}</div>
+                    <div className="opacity-60">{v.desc}</div>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div>
-            <label className="text-[9px] uppercase tracking-widest text-zinc-500 font-bold mb-2 block">Language</label>
-            <div className="flex gap-2 p-1 bg-black rounded-xl border border-zinc-800">
-              {["English", "Spanish"].map(l => (
-                <button key={l} onClick={() => setLanguage(l)} disabled={status !== "Disconnected"}
-                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold transition ${language === l ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}>{l}</button>
-              ))}
+            <div>
+              <label className="text-base font-bold uppercase text-zinc-500 mb-3 block tracking-widest">Language</label>
+              <div className="flex bg-zinc-200 dark:bg-zinc-900 p-1 rounded-xl">
+                {["English", "Spanish"].map(l => (
+                  <button key={l} onClick={() => setLanguage(l)} disabled={status !== "Disconnected"}
+                    className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${language === l ? 'bg-white dark:bg-zinc-800 shadow-sm' : 'text-zinc-500'}`}>{l}</button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="p-5 border-t border-zinc-900 bg-zinc-950 sticky bottom-0">
-          <button onClick={status === "Disconnected" ? startSession : stopAudio}
-            className={`w-full py-3 rounded-xl font-black text-base transition-all active:scale-95 ${status === "Disconnected" ? "bg-white text-black hover:bg-zinc-200" : "bg-red-600 text-white"}`}>
+        {/* Footer Action */}
+        <div className="p-5 border-t border-zinc-200 dark:border-zinc-900">
+          <button 
+            onClick={status === "Disconnected" ? startSession : stopAudio}
+            className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-transform active:scale-95 ${status === "Disconnected" ? "bg-zinc-900 text-white dark:bg-white dark:text-black" : "bg-red-500 text-white"}`}
+          >
+            {status === "Disconnected" ? <Mic size={18} /> : <MicOff size={18} />}
             {status === "Disconnected" ? "START SESSION" : "END SESSION"}
           </button>
           {status !== "Disconnected" && (
-            <p className="text-center text-[8px] text-zinc-500 mt-2 uppercase tracking-tighter">
-              Billed for {formatTime(secondsElapsed)} so far
+            <p className="text-[9px] text-center mt-3 text-zinc-500 font-bold tracking-widest animate-pulse">
+              BILLING ACTIVE: {formatTime(secondsElapsed)}
             </p>
           )}
         </div>
       </div>
 
-      {/* RIGHT PANEL: PERMANENT TRANSCRIPT */}
-      <div className="flex-1 flex flex-col bg-black">
-        <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-950/50 backdrop-blur">
-          <h2 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Conversation Log</h2>
-          <button onClick={() => setMessages([])} className="text-[9px] text-zinc-600 hover:text-red-400 font-bold uppercase">Clear</button>
+      {/* RIGHT PANEL */}
+      <div className="flex-1 flex flex-col bg-white dark:bg-black">
+        <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center bg-white/80 dark:bg-black/80 backdrop-blur-md sticky top-0 z-20">
+          <span className="text-base font-bold text-zinc-400 uppercase tracking-[0.2em]">Live Transcript</span>
+          <button onClick={() => setMessages([])} className="p-2 hover:text-red-500 transition-colors text-zinc-400">
+            <Trash2 size={16} />
+          </button>
         </div>
-        
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 flex flex-col-reverse">
-          <div className="h-4 w-full" />
+
+        <div className="flex-1 overflow-y-auto p-8 space-y-8 flex flex-col-reverse">
+          <div className="h-1" /> {/* Spacer */}
           {messages.map((msg) => (
             <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-              <div className={`max-w-[75%] p-4 rounded-2xl text-base leading-relaxed ${
-                msg.role === 'user' ? 'bg-zinc-800 text-zinc-200 rounded-tr-none' : 'bg-blue-600/10 text-blue-100 border border-blue-900/20 rounded-tl-none'
+              <div className={`max-w-[80%] p-5 rounded-3xl text-[15px] leading-relaxed shadow-sm ${
+                msg.role === 'user' 
+                ? 'bg-zinc-100 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 rounded-tr-none border border-zinc-200 dark:border-zinc-800' 
+                : 'bg-blue-500 text-white rounded-tl-none shadow-blue-500/20 shadow-lg'
               }`}>
-                {msg.text || <span className="animate-pulse italic opacity-50">Speaking...</span>}
+                {msg.text || <span className="italic opacity-70 animate-pulse">Thinking...</span>}
               </div>
-              <span className="text-[8px] text-zinc-600 mt-1.5 font-mono uppercase">
-                {msg.role} • {msg.timestamp.toLocaleTimeString()}
-              </span>
+              <div className="mt-2 flex items-center gap-2 px-2 text-[9px] font-bold text-zinc-400 uppercase tracking-widest">
+                <span>{msg.role}</span>
+                <span>•</span>
+                <span>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
             </div>
           ))}
           {messages.length === 0 && (
-            <div className="h-full flex items-center justify-center text-zinc-800 italic text-base">Waiting for conversation...</div>
+            <div className="flex-1 flex items-center justify-center text-zinc-300 dark:text-zinc-800 uppercase tracking-[0.3em] font-black text-xl">
+              Waiting for Input
+            </div>
           )}
         </div>
       </div>
