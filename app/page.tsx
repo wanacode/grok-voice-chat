@@ -13,7 +13,7 @@ const VOICES = [
 
 type Message = {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   text: string;
   timestamp: Date;
 };
@@ -21,7 +21,6 @@ type Message = {
 export default function GrokSplitScreen() {
   // --- UI & Theme State ---
   const [theme, setTheme] = useState<"light" | "dark">(() => {
-    // Only run on client
     if (typeof window !== "undefined") {
       return (localStorage.getItem("theme") as "light" | "dark") || "dark";
     }
@@ -125,14 +124,14 @@ export default function GrokSplitScreen() {
       socketRef.current = ws;
 
       ws.onopen = () => {
-        // Start Billing Timer
+        // Start Timer
         setSecondsElapsed(0);
         timerIntervalRef.current = setInterval(
           () => setSecondsElapsed((s) => s + 1),
           1000
         );
 
-        // --- UPDATED SESSION CONFIGURATION ---
+        // --- RESTORED SESSION CONFIGURATION ---
         ws.send(
           JSON.stringify({
             type: "session.update",
@@ -142,14 +141,11 @@ export default function GrokSplitScreen() {
           You have access to real-time web search and X (Twitter) search. 
           Use these tools automatically when the user asks for current events or specific info from X.`,
               turn_detection: { type: "server_vad" },
-              input_audio_transcription: { model: "whisper-1" }, // Recommended for better tool triggering
               tools: [
-                {
-                  type: "web_search",
-                },
+                { type: "web_search" },
                 {
                   type: "x_search",
-                  allowed_x_handles: ["elonmusk", "xai"], // Customize or remove handles as needed
+                  allowed_x_handles: ["elonmusk", "xai"],
                 },
               ],
               audio: {
@@ -159,7 +155,6 @@ export default function GrokSplitScreen() {
             },
           })
         );
-        // --------------------------------------
 
         const source = audioContextRef.current!.createMediaStreamSource(stream);
         processorRef.current = audioContextRef.current!.createScriptProcessor(
@@ -196,12 +191,9 @@ export default function GrokSplitScreen() {
 
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-
-        // LOGGING TOOLS (Optional): Helpful for debugging search usage
         if (data.type === "response.function_call_arguments.done") {
           console.log("🛠️ Grok is using a tool:", data.name, data.arguments);
         }
-
         switch (data.type) {
           case "session.updated":
             setStatus("Ready");
@@ -245,6 +237,18 @@ export default function GrokSplitScreen() {
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
+
+      // Log session end with duration
+      const finalDuration = formatTime(secondsElapsed);
+      setMessages((prev) => [
+        {
+          id: Math.random().toString(),
+          role: "system",
+          text: `Session Disconnected • Duration: ${finalDuration}`,
+          timestamp: new Date(),
+        },
+        ...prev,
+      ]);
     }
     processorRef.current?.disconnect();
     socketRef.current?.close();
@@ -257,7 +261,6 @@ export default function GrokSplitScreen() {
     <div className="flex h-screen w-screen bg-white dark:bg-black text-zinc-900 dark:text-zinc-100 transition-colors duration-300 font-sans overflow-hidden">
       {/* LEFT PANEL */}
       <div className="w-[320px] flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 flex flex-col bg-zinc-50 dark:bg-zinc-950">
-        {/* Header */}
         <div className="p-5 border-b border-zinc-200 dark:border-zinc-900 flex justify-between items-center">
           <div>
             <h1 className="text-lg font-black tracking-tight uppercase">
@@ -281,28 +284,23 @@ export default function GrokSplitScreen() {
           </button>
         </div>
 
-        {/* Status & Visualizer */}
         <div className="p-6 flex-1 space-y-2 overflow-y-auto">
-          <div className="relative flex flex-col items-center justify-center p-2 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
-            {status !== "Disconnected" && (
-              <div className="absolute top-4 text-base font-mono font-bold tracking-tighter text-zinc-400">
-                ELAPSED: {formatTime(secondsElapsed)}
-              </div>
-            )}
+          <div className="relative flex flex-col items-center justify-center p-2 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm mb-6 h-24 w-full">
+            {" "}
             <div
-              className={`rounded-full transition-all duration-150 ${
+              className={`rounded-full transition-transform duration-150 ${
                 isSpeaking
                   ? "bg-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.5)]"
                   : "bg-zinc-200 dark:bg-zinc-800"
               }`}
               style={{
-                width: `${Math.max(50, 50 + volume)}px`,
-                height: `${Math.max(50, 50 + volume)}px`,
+                width: "50px",
+                height: "50px",
+                transform: `scale(${1 + volume / 100})`,
               }}
             />
           </div>
 
-          {/* Settings */}
           <div className="space-y-6">
             <div>
               <label className="text-base font-bold uppercase text-zinc-500 mb-3 block tracking-widest">
@@ -351,28 +349,34 @@ export default function GrokSplitScreen() {
           </div>
         </div>
 
-        {/* Footer Action */}
         <div className="p-5 border-t border-zinc-200 dark:border-zinc-900">
           <button
             onClick={status === "Disconnected" ? startSession : stopAudio}
-            className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-transform active:scale-95 ${
+            className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-3 transition-transform active:scale-95 ${
               status === "Disconnected"
                 ? "bg-zinc-900 text-white dark:bg-white dark:text-black"
                 : "bg-red-500 text-white"
             }`}
           >
             {status === "Disconnected" ? (
-              <Mic size={18} />
+              <>
+                <Mic size={18} />
+                <span>START SESSION</span>
+              </>
             ) : (
-              <MicOff size={18} />
+              <>
+                <MicOff size={18} />
+                <div className="flex flex-col items-start leading-none">
+                  <span className="text-[10px] opacity-70 uppercase">
+                    END SESSION
+                  </span>
+                  <span className="text-lg font-mono tracking-tighter">
+                    {formatTime(secondsElapsed)}
+                  </span>
+                </div>
+              </>
             )}
-            {status === "Disconnected" ? "START SESSION" : "END SESSION"}
           </button>
-          {status !== "Disconnected" && (
-            <p className="text-[9px] text-center mt-3 text-zinc-500 font-bold tracking-widest animate-pulse">
-              BILLING ACTIVE: {formatTime(secondsElapsed)}
-            </p>
-          )}
         </div>
       </div>
 
@@ -391,39 +395,50 @@ export default function GrokSplitScreen() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-8 space-y-8 flex flex-col-reverse">
-          <div className="h-1" /> {/* Spacer */}
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex flex-col ${
-                msg.role === "user" ? "items-end" : "items-start"
-              }`}
-            >
+          <div className="h-1" />
+          {messages.map((msg) => {
+            if (msg.role === "system") {
+              return (
+                <div key={msg.id} className="flex justify-center py-2">
+                  <div className="bg-zinc-100 dark:bg-zinc-900 text-zinc-500 text-[10px] font-bold uppercase tracking-[0.2em] px-4 py-1 rounded-full border border-zinc-200 dark:border-zinc-800">
+                    {msg.text}
+                  </div>
+                </div>
+              );
+            }
+            return (
               <div
-                className={`max-w-[80%] p-5 rounded-3xl text-[15px] leading-relaxed shadow-sm ${
-                  msg.role === "user"
-                    ? "bg-zinc-100 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 rounded-tr-none border border-zinc-200 dark:border-zinc-800"
-                    : "bg-blue-500 text-white rounded-tl-none shadow-blue-500/20 shadow-lg"
+                key={msg.id}
+                className={`flex flex-col ${
+                  msg.role === "user" ? "items-end" : "items-start"
                 }`}
               >
-                {msg.text || (
-                  <span className="italic opacity-70 animate-pulse">
-                    Thinking...
+                <div
+                  className={`max-w-[80%] p-5 rounded-3xl text-[15px] leading-relaxed shadow-sm ${
+                    msg.role === "user"
+                      ? "bg-zinc-100 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 rounded-tr-none border border-zinc-200 dark:border-zinc-800"
+                      : "bg-blue-500 text-white rounded-tl-none shadow-blue-500/20 shadow-lg"
+                  }`}
+                >
+                  {msg.text || (
+                    <span className="italic opacity-70 animate-pulse">
+                      Thinking...
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 flex items-center gap-2 px-2 text-[9px] font-bold text-zinc-400 uppercase tracking-widest">
+                  <span>{msg.role}</span>
+                  <span>•</span>
+                  <span>
+                    {msg.timestamp.toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                   </span>
-                )}
+                </div>
               </div>
-              <div className="mt-2 flex items-center gap-2 px-2 text-[9px] font-bold text-zinc-400 uppercase tracking-widest">
-                <span>{msg.role}</span>
-                <span>•</span>
-                <span>
-                  {msg.timestamp.toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {messages.length === 0 && (
             <div className="flex-1 flex items-center justify-center text-zinc-300 dark:text-zinc-800 uppercase tracking-[0.3em] font-black text-xl">
               Waiting for Input
