@@ -10,7 +10,7 @@ const server = app.listen(8080, () => console.log(`🚀 Relay: ws://localhost:80
 const wss = new WebSocketServer({ server });
 
 wss.on('connection', (clientSocket) => {
-  const xaiSocket = new WebSocket('wss://api.x.ai/v1/realtime', {
+  const xaiSocket = new WebSocket('wss://api.x.ai/v1/realtime?model=grok-voice-think-fast-1.0', {
     headers: { 'Authorization': `Bearer ${process.env.XAI_API_KEY}` }
   });
 
